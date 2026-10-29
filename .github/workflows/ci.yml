@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   validate:
-    name: ${{ github.event.action == 'edited' && !github.event.changes.base && 'Validate (skipped: body edit)' || 'Validate' }}
+    name: ${{ github.event.action == 'edited' && !github.event.changes.base && 'Validate (skipped for title or body edit)' || 'Validate' }}
     if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     steps:
