@@ -1,0 +1,45 @@
+name: Review Gates
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  review-gates:
+    name: Review Gates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: oven-sh/setup-bun@v2
+      - name: Find the last retarget and the newest CI run
+        id: retarget
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          retargeted=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+            --jq '.[] | select(.event == "base_ref_changed" or .event == "automatic_base_change_succeeded") | .created_at' | sort | tail -n 1)
+          ci=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&event=pull_request&per_page=1" \
+            --jq '.workflow_runs[0].created_at // ""')
+          echo "retargeted_at=$retargeted" >> "$GITHUB_OUTPUT"
+          echo "ci_created_at=$ci" >> "$GITHUB_OUTPUT"
+      - name: Check review gates
+        env:
+          LAST_RETARGET_AT: ${{ steps.retarget.outputs.retargeted_at }}
+          NEWEST_CI_AT: ${{ steps.retarget.outputs.ci_created_at }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          echo "retargeted_at=$LAST_RETARGET_AT ci_created_at=$NEWEST_CI_AT"
+          bun -e '
+            const r = process.env.LAST_RETARGET_AT ?? "", c = process.env.NEWEST_CI_AT ?? "";
+            if (r && !(c && Date.parse(c) > Date.parse(r))) { console.error(`The base changed to ${process.env.BASE} at ${r}, after the newest CI run (${c}).`); process.exit(1); }
+            console.log("OK");'
